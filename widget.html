@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<title>Purchase Management Collection</title>
+<style>
+:root{color-scheme:light dark;--ok:#15803d;--warn:#b45309;--urgent:#dc2626;--expired:#6b7280;--bg:#f8fafc;--card:#fff;--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;--accent:#1d4ed8}
+@media(prefers-color-scheme:dark){:root{--bg:#0f172a;--card:#1e293b;--ink:#e2e8f0;--muted:#94a3b8;--line:#334155}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+header{padding:16px 20px;border-bottom:1px solid var(--line)}h1{font-size:18px;margin:0}
+main{max-width:960px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:2px}
+input,select,textarea{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink);font:inherit}
+button{padding:8px 14px;border:0;border-radius:6px;background:var(--accent);color:#fff;font:inherit;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+button:disabled{opacity:.5;cursor:default}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);font-size:13px}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600}
+.b-ok{background:#dcfce7;color:var(--ok)}.b-warn_soon{background:#fef3c7;color:var(--warn)}.b-urgent{background:#fee2e2;color:var(--urgent)}.b-expired{background:#e5e7eb;color:var(--expired)}.b-withdrawn{background:#e0e7ff;color:#4338ca}
+.note{font-size:12px;color:var(--muted)}
+.banner{border-left:4px solid var(--warn);background:#fef9c310;padding:10px 12px;border-radius:6px;font-size:13px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.err{color:var(--urgent);font-size:13px;min-height:1em}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<header><h1>Purchase Management Collection</h1>
+<div class="note">Local-first purchase records · withdrawal deadline tracker (herroepingsrecht/bedenktijd) · parcel tracking links</div></header>
+<main>
+<div class="banner card"><strong>Model dates — not legal advice.</strong> Deadlines are computed from the dates you record plus a configurable window (default 14 days). The statutory withdrawal period depends on your contract, delivery facts and applicable national law. Data stays in this browser (localStorage); nothing is sent anywhere.</div>
+
+<section class="card">
+<h2>Add a purchase</h2>
+<div class="grid">
+<div><label for="f-merchant">Merchant *</label><input id="f-merchant" maxlength="160" placeholder="bol.com"></div>
+<div><label for="f-order">Order reference</label><input id="f-order" maxlength="160" placeholder="123456789"></div>
+<div><label for="f-item">Item</label><input id="f-item" maxlength="500" placeholder="Blue headphones"></div>
+<div><label for="f-pdate">Purchase date *</label><input id="f-pdate" type="date"></div>
+<div><label for="f-ddate">Delivery date</label><input id="f-ddate" type="date"></div>
+<div><label for="f-amount">Amount</label><input id="f-amount" type="number" min="0" step="0.01" placeholder="49.99"></div>
+<div><label for="f-currency">Currency</label><input id="f-currency" maxlength="3" value="EUR"></div>
+<div><label for="f-carrier">Parcel carrier</label><select id="f-carrier"><option value="">— none —</option></select></div>
+<div><label for="f-track">Tracking code</label><input id="f-track" maxlength="120"></div>
+<div><label for="f-notes">Notes</label><input id="f-notes" maxlength="2000"></div>
+</div>
+<div class="row" style="margin-top:12px"><button id="b-add">Add purchase</button><span class="err" id="err-add"></span></div>
+</section>
+
+<section class="card">
+<div class="row"><h2 style="flex:1;margin:0">Your purchases</h2>
+<button class="ghost" id="b-ics">Download .ics</button>
+<button class="ghost" id="b-export">Export dossier</button>
+<button class="ghost" id="b-import">Import dossier</button>
+<input type="file" id="f-import" accept=".json,application/json" hidden></div>
+<div class="note" id="summary"></div>
+<table><thead><tr><th>Merchant</th><th>Deadline</th><th>Days left</th><th>Status</th><th>Parcel</th><th></th></tr></thead><tbody id="rows"></tbody></table>
+<div class="err" id="err-list"></div>
+</section>
+</main>
+<script type="module">
+const KEY='pmc.purchases.v1', MAX=200;
+const $=id=>document.getElementById(id);
+let purchases=[];
+try{purchases=JSON.parse(localStorage.getItem(KEY)||'[]');if(!Array.isArray(purchases))purchases=[];}catch{purchases=[];}
+
+async function api(path,body,accept){
+  const res=await fetch(path,{method:'POST',headers:{'content-type':'application/json',...(accept?{accept}:{})},body:JSON.stringify(body)});
+  if(!res.ok){let msg='Request failed';try{msg=(await res.json()).error||msg;}catch{}throw new Error(msg);}
+  return accept==='text/calendar'?res.text():res.json();
+}
+const iso=d=>d.toISOString().slice(0,10);
+const rules=()=>({windowDays:14,warnDays:5,urgentDays:2});
+
+async function render(){
+  const tbody=$('rows');tbody.innerHTML='';$('err-list').textContent='';
+  if(!purchases.length){$('summary').textContent='No purchases recorded yet.';return;}
+  try{
+    const report=await api('/api/deadlines',{purchases,rules:rules()});
+    $('summary').textContent=`${report.summary.total} purchase(s) · ${report.summary.active} active · ${report.summary.urgent} urgent · ${report.summary.expired} expired`;
+    for(const d of report.deadlines){
+      const tr=document.createElement('tr');
+      const parcel=d.parcelLinks&&d.parcelLinks[0];
+      tr.innerHTML=`<td>${esc(d.merchant)}${d.orderRef?` <span class="note">#${esc(d.orderRef)}</span>`:''}</td>
+        <td>${d.deadlineDate}<br><span class="note">${esc(d.assumptions[0]?.note||'')}</span></td>
+        <td>${d.status==='expired'||d.status==='withdrawn'?'—':d.daysRemaining}</td>
+        <td><span class="badge b-${d.status}">${d.status.replace('_',' ')}</span></td>
+        <td>${parcel?`<a href="${esc(parcel.trackingUrl)}" target="_blank" rel="noopener">track</a>`:''}</td>
+        <td><button class="ghost" data-del="${esc(d.id)}">remove</button></td>`;
+      tbody.appendChild(tr);
+    }
+  }catch(e){$('err-list').textContent=e.message;}
+}
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const save=()=>localStorage.setItem(KEY,JSON.stringify(purchases.slice(0,MAX)));
+
+$('b-add').onclick=async()=>{
+  $('err-add').textContent='';
+  const merchant=$('f-merchant').value.trim(),pdate=$('f-pdate').value,ddate=$('f-ddate').value;
+  if(!merchant||!pdate){$('err-add').textContent='Merchant and purchase date are required.';return;}
+  if(ddate&&ddate<pdate){$('err-add').textContent='Delivery date cannot be before the purchase date.';return;}
+  const parcels=[];
+  if($('f-carrier').value&&$('f-track').value.trim())parcels.push({carrier:$('f-carrier').value,trackingCode:$('f-track').value.trim()});
+  const amt=$('f-amount').value;
+  purchases.push({id:'p-'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),merchant,
+    orderRef:$('f-order').value.trim()||undefined,itemDescription:$('f-item').value.trim()||undefined,
+    purchaseDate:pdate,deliveryDate:ddate||undefined,
+    amountMinor:amt?Math.round(parseFloat(amt)*100):undefined,currency:$('f-currency').value.trim()||undefined,
+    notes:$('f-notes').value.trim()||undefined,parcels,withdrawn:false});
+  save();
+  ['f-merchant','f-order','f-item','f-ddate','f-amount','f-track','f-notes'].forEach(id=>$(id).value='');
+  await render();
+};
+
+$('rows').onclick=async e=>{
+  const id=e.target.dataset&&e.target.dataset.del;
+  if(!id)return;purchases=purchases.filter(p=>p.id!==id);save();await render();
+};
+
+$('b-ics').onclick=async()=>{
+  if(!purchases.length)return;
+  try{const res=await fetch('/api/ics',{method:'POST',headers:{'content-type':'application/json','accept':'text/calendar'},body:JSON.stringify({purchases,rules:rules()})});
+    if(!res.ok)throw new Error('Calendar export failed');
+    const blob=new Blob([await res.text()],{type:'text/calendar'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='purchase-deadlines.ics';a.click();URL.revokeObjectURL(a.href);
+  }catch(e){$('err-list').textContent=e.message;}
+};
+
+$('b-export').onclick=()=>{
+  if(!purchases.length)return;
+  const blob=new Blob([JSON.stringify({format:'purchase-management-collection',version:1,savedAt:iso(new Date()),purchases},null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='pmc-dossier.json';a.click();URL.revokeObjectURL(a.href);
+};
+$('b-import').onclick=()=>$('f-import').click();
+$('f-import').onchange=async e=>{
+  const file=e.target.files[0];if(!file)return;
+  try{
+    const raw=JSON.parse(await file.text());
+    const res=await api('/api/dossier',raw);
+    purchases=res.dossier.purchases;save();await render();
+  }catch(err){$('err-list').textContent='Import failed: '+err.message;}
+  e.target.value='';
+};
+
+(async()=>{try{const r=await fetch('/api/carriers');const {carriers}=await r.json();
+  for(const c of carriers){const o=document.createElement('option');o.value=c;o.textContent=c;$('f-carrier').appendChild(o);}}catch{}})();
+render();
+</script>
+</body>
+</html>

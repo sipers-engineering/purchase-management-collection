@@ -9,7 +9,7 @@ The app models the EU-wide 14-day right of withdrawal (Consumer Rights Directive
 - **Purchase records** — merchant, reference, order and delivery dates, stored in the browser's local storage.
 - **Model withdrawal deadlines** — deterministic UTC-exact calendar-day engine; configurable window (default 14 days), warn/urgent status bands, explicit delivery-vs-order-date assumptions.
 - **RFC 5545 calendar export** — `.ics` download with correct line folding/escaping and two reminder alarms; the user imports it into their own calendar (no reminder delivery).
-- **Public parcel tracking links** — registry of 10 carriers (PostNL, DHL, DPD, GLS, UPS, FedEx, DHL Parcel, Mondial Relay, bpost, Colissimo) built from public tracking pages only; unknown carriers get a graceful fallback. No carrier APIs, no scraping.
+- **Public parcel tracking links** — registry of 10 carriers (PostNL, DHL, DHL for You, DPD, GLS, UPS, bpost, FedEx, Amazon Logistics, InPost/Kiala) built from public tracking pages only; unknown carriers get a graceful local fallback. No carrier APIs, no scraping.
 - **Portable dossiers** — versioned JSON export/import so records survive a browser or device change.
 - **Read-only MCP integration** — a Model Context Protocol server exposes the user's records to local assistants for read access; the app never uploads personal purchase data to remote models.
 
